@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import litellm
 import pytest
 
 from minisweagent.exceptions import FormatError
@@ -22,6 +23,34 @@ def _mock_litellm_response(tool_calls):
 
 
 class TestLitellmModel:
+    def test_bad_request_aborts_while_transient_errors_retry(self):
+        model = LitellmModel(model_name="gpt-4")
+        bad_request = litellm.exceptions.BadRequestError("invalid request", model="gpt-4", llm_provider="openai")
+
+        with (
+            patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost", return_value=0.001),
+            patch("tenacity.nap.time.sleep"),
+        ):
+            with patch(
+                "minisweagent.models.litellm_model.litellm.completion", side_effect=bad_request
+            ) as mock_completion:
+                with pytest.raises(litellm.exceptions.BadRequestError):
+                    model.query([{"role": "user", "content": "test"}])
+                assert mock_completion.call_count == 1
+
+            tool_call = MagicMock()
+            tool_call.function.name = "bash"
+            tool_call.function.arguments = '{"command": "echo retried"}'
+            tool_call.id = "call_retry"
+            with patch(
+                "minisweagent.models.litellm_model.litellm.completion",
+                side_effect=[RuntimeError("transient"), _mock_litellm_response([tool_call])],
+            ) as mock_completion:
+                assert model.query([{"role": "user", "content": "test"}])["extra"]["actions"] == [
+                    {"command": "echo retried", "tool_call_id": "call_retry"}
+                ]
+                assert mock_completion.call_count == 2
+
     @patch("minisweagent.models.litellm_model.litellm.completion")
     @patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost")
     def test_query_includes_bash_tool(self, mock_cost, mock_completion):
