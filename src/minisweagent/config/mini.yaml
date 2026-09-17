@@ -100,6 +100,7 @@ agent:
     ```
   step_limit: 0
   cost_limit: 3.
+  resample_on_format_error: false
   mode: confirm
 environment:
   env:

@@ -31,6 +31,8 @@ class AgentConfig(BaseModel):
     """Stop agent after this many seconds of wall-clock time. 0 means no limit."""
     max_consecutive_format_errors: int = 3
     """Exit after this many format errors in a row (0 = no limit)."""
+    resample_on_format_error: bool = False
+    """Retry from the same conversation without adding a format-error message."""
     output_path: Path | None = None
     """Save the trajectory to this path."""
 
@@ -101,17 +103,16 @@ class DefaultAgent:
                 # The call was billed before parsing failed, so query() never got to charge it.
                 self.cost += e.messages[0].get("extra", {}).get("cost", 0.0)
                 self.n_consecutive_format_errors += 1
+                if not self.config.resample_on_format_error:
+                    self.add_messages(*e.messages)
                 if 0 < self.config.max_consecutive_format_errors <= self.n_consecutive_format_errors:
                     self.add_messages(
-                        *e.messages,
                         {
                             "role": "exit",
                             "content": "RepeatedFormatError",
                             "extra": {"exit_status": "RepeatedFormatError", "submission": ""},
                         },
                     )
-                else:
-                    self.add_messages(*e.messages)
             except InterruptAgentFlow as e:
                 self.add_messages(*e.messages)
             except Exception as e:
