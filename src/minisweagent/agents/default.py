@@ -49,6 +49,7 @@ class DefaultAgent:
         self.cost = 0.0
         self.n_calls = 0
         self.n_consecutive_format_errors = 0
+        self.n_format_errors = 0
         self._start_time = time.time()
 
     def get_template_vars(self, **kwargs) -> dict:
@@ -103,6 +104,7 @@ class DefaultAgent:
                 # The call was billed before parsing failed, so query() never got to charge it.
                 self.cost += e.messages[0].get("extra", {}).get("cost", 0.0)
                 self.n_consecutive_format_errors += 1
+                self.n_format_errors += 1
                 if not self.config.resample_on_format_error:
                     self.add_messages(*e.messages)
                 if 0 < self.config.max_consecutive_format_errors <= self.n_consecutive_format_errors:
@@ -166,6 +168,7 @@ class DefaultAgent:
                 "model_stats": {
                     "instance_cost": self.cost,
                     "api_calls": self.n_calls,
+                    "n_format_errors": self.n_format_errors,
                 },
                 "config": {
                     "agent": self.config.model_dump(mode="json"),

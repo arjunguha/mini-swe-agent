@@ -512,6 +512,28 @@ def test_format_error_counter_resets_on_success(toolcall_config):
     assert info["submission"] == "ok\n"
 
 
+def test_format_errors_are_counted_when_resampled(toolcall_config):
+    """n_format_errors is cumulative, unlike n_consecutive_format_errors, and is published through
+    serialize(). With resample_on_format_error the discarded sample never enters `messages`, so
+    this counter is the only trace that the model failed the format at all."""
+    good = make_tc_model([("listing", [{"command": "echo hello"}])]).config.outputs[0]
+    submit = make_tc_model(
+        [("done", [{"command": "echo 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'\necho ok"}])]
+    ).config.outputs[0]
+    outputs = [{"_format_error": True}, good, {"_format_error": True}, submit]
+    agent = DefaultAgent(
+        model=_FlakyToolcallModel(outputs=outputs),
+        env=LocalEnvironment(),
+        **{**toolcall_config, "max_consecutive_format_errors": 2, "resample_on_format_error": True},
+    )
+    info = agent.run("Test cumulative format-error counter")
+
+    assert info["exit_status"] == "Submitted"
+    assert agent.n_format_errors == 2
+    assert agent.n_consecutive_format_errors == 1  # only ever counts a run, never the total
+    assert agent.serialize()["info"]["model_stats"]["n_format_errors"] == 2
+
+
 class _BilledFormatErrorModel(DeterministicToolcallModel):
     """Bills the call and then fails to parse it, the way the real model classes do: the cost is
     charged to the global stats and persisted on the FormatError before it propagates."""
